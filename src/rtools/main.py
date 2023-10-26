@@ -15,7 +15,7 @@ def routing_arguments():
     parser.add_argument('--kicad_pro', type=str, dest='kicad_pro',
                         default="example/pcb/bench2/bm2.unrouted.kicad_pro")
     parser.add_argument('--save_file', type=str, dest='save_file',
-                        default="example/pcb/bench2/bm2.routed.kicad_pcb")
+                        default="logs/bm2.routed.kicad_pcb")
 
     return parser.parse_args()
 
