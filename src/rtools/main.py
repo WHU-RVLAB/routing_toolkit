@@ -15,7 +15,7 @@ def routing_arguments():
     parser.add_argument('--kicad_pro', type=str, dest='kicad_pro',
                         default="example/pcb/bench2/bm2.unrouted.kicad_pro")
     parser.add_argument('--save_file', type=str, dest='save_file',
-                        default="logs/bm2.routed.kicad_pcb")
+                        default="bm2.routed.kicad_pcb")
 
     return parser.parse_args()
 
@@ -34,9 +34,9 @@ if __name__ == '__main__':
     # load the routing data
     dataset.load()
 
-    tmp = dataset.netList[1]
-    dataset.netList[1] = dataset.netList[34]
-    dataset.netList[34] = tmp
+    # tmp = dataset.netList[1]
+    # dataset.netList[1] = dataset.netList[34]
+    # dataset.netList[34] = tmp
 
     # build the model from dataset
     model = GridEnv(dataset.board_area, dataset.layer_num,
@@ -50,4 +50,6 @@ if __name__ == '__main__':
     # write back the routing result
     dataset.store_route(model.merge_route())
 
-    print('route time = {} s'.format(router.route_time))
+    print('\nroute time = {} s'.format(router.route_time))
+    print('routing cost : {}'.format(router.route_cost))
+    print('episode cost : {}'.format(router.episode_cost))

@@ -1,4 +1,5 @@
 import math
+import os
 
 from kiutils.board import Board
 from kiutils.items.brditems import Segment, Via
@@ -189,4 +190,7 @@ class Dataset:
 
             i += 1
 
-        board.to_file(self.save_filename)
+        logs_dir = 'logs'
+        if not os.path.isdir(logs_dir):
+            os.mkdir(logs_dir)
+        board.to_file(logs_dir + '/' + self.save_filename)
