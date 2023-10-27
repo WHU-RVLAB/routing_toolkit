@@ -1,18 +1,18 @@
 import math
 
-from rtools.utils import diagonal_distance_3d, circle_space_set, rect_space_set
+from rtools.utils import diagonal_distance_3d, circle_space_set, oval_space_set, rect_space_set
 
 
 def to_grid_coord_round_down(real_coord):
-    return int(real_coord * 3 / 0.25)  # 0.25
+    return int(real_coord * 3 / 0.2)  # 0.25
 
 
 def to_grid_coord_round_up(real_coord):
-    return math.ceil(real_coord * 3 / 0.25)  # 0.25
+    return math.ceil(real_coord * 3 / 0.2)  # 0.25
 
 
 def to_real_coord(grid_coord):
-    return grid_coord / 3 * 0.25  # 0.25
+    return grid_coord / 3 * 0.2  # 0.25
 
 
 class Pad:
@@ -48,6 +48,12 @@ class Pad:
                 self.occupied_coord_set = self.occupied_coord_set | circle_space_set([x_coord, y_coord, z_i],
                                                                                      self.hsize[0])
                 self.pad_coord_set = self.pad_coord_set | circle_space_set([x_coord, y_coord, z_i], self.hsize[0] - 1)
+        elif self.shape == 'oval':
+            for z_i in range(z_max - z_min):
+                self.occupied_coord_set = \
+                    self.occupied_coord_set | oval_space_set([x_coord, y_coord, z_i], self.hsize[0], self.hsize[1])
+                self.pad_coord_set = \
+                    self.pad_coord_set | oval_space_set([x_coord, y_coord, z_i], self.hsize[0] - 1, self.hsize[1] - 1)
         else:
             for z_i in range(z_max - z_min):
                 self.occupied_coord_set = \
@@ -199,75 +205,25 @@ class GridEnv:
         self.net_num = net_num
         """ the number of nets """
 
-        self.netlist = self.load_net_list(net_list, net_class)
-        """
-        netlist: a list of the pads from each net
-        """
+        self.netlist, self.net_order = self.load_net_list(net_list, net_class)
+        """ a list of the pads from each net """
 
         self.pad_obstacles = self.load_pad_obstacles(pad_obstacles)
-
-        # self.electric_width = []
-        """ 
-            It is a list of the electrical width, each electrical width is also a list and has two elements.
-            The first element is calculated by track width and clearance.
-            The second element is calculated by microvia width and clearance.
-        """
-
-        # self.widthList = []
-        """
-        a list of the width of each net. The first element of the width is track_width, the second is microvia_width.
-        """
-
-        # self.pad_size_array = []
-        """
-            It is a list of the coordinates of the pads.
-            pad_size_array[i][j] is the j-st pad's coordinates of the i-st net
-        """
-        # self.pin_hsize_array = []
-        """
-            It is a list of the pads' size.
-            pin_hsize_array[i][j] is the j-st pad's size of the i-st net
-            pin_hsize_array[i][j] = [x_hsize, y_hsize, shape]
-        """
-        # self.pin_grid_set = {}
-        """ It is a dict[str, set], which use string of the coordinate to index pad's grids. """
-
-        # self.twoPinNetCombo, self.twoPinNetNums, self.netlist = self.generate_two_pin_net()
-        """
-        twoPinNetCombo: a list of the two-pin nets from each net. The order of the two-pin nets is based on MST.
-        twoPinNetNums: a list of the number of the two-pin nets form each net
-        netlist: a list of the pad from each net
-        """
+        """ a list of the pads do not have a net """
 
         self.occupied_coord = self.generate_occupied_coord()
         """ a dict stores the occupied grids """
 
-        # self.route_combo = []
-        # self.route_cost = []
-        # self.episode_cost = []
-
-        # self.init_pad = None
-        # self.goal_pad = None
-
-        # self.twoPinNet_i = 0
-        # self.multiPinNet_i = 0
-        # self.netPinSet = set([])
-        # self.netPinRoute = []
-        # self.old_netPinRoute = []
-        # self.route = []
-        # self.old_route = []
-        # self.cost = 0
-
-        # self.episode = 0
-
     def load_net_list(self, net_list, net_class):
         net_list_tmp = []
-        for i in range(self.net_num):
+        net_order = list(range(self.net_num))
+        for i in net_order:
             net_info = net_list[i + 1]
-            net = Net(net_info.netID, net_info.netName, NetClass(net_class[net_info.netClass].track_width,
-                                                                 net_class[net_info.netClass].microvia_diameter,
-                                                                 net_class[net_info.netClass].clearance_with_track,
-                                                                 net_class[net_info.netClass].clearance_with_microvia))
+            net = Net(net_info.netID - 1, net_info.netName,
+                      NetClass(net_class[net_info.netClass].track_width,
+                               net_class[net_info.netClass].microvia_diameter,
+                               net_class[net_info.netClass].clearance_with_track,
+                               net_class[net_info.netClass].clearance_with_microvia))
             for pad_info in net_info.padList:
                 pad = Pad(pad_info.position, pad_info.layer, pad_info.shape,
                           pad_info.size, pad_info.type, pad_info.netID)
@@ -280,7 +236,7 @@ class GridEnv:
 
             net_list_tmp.append(net)
 
-        return net_list_tmp
+        return net_list_tmp, net_order
 
     def load_pad_obstacles(self, pad_obstacles):
         pad_list_tmp = []

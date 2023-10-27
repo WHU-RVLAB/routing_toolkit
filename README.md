@@ -16,7 +16,7 @@ pip install .
 ## Running
 routing pcb from kicad:
 ```bash
-python src/rtools/main.py [--kicad_pcb filename] [--kicad_pro filename] [--save_file filename]
+python src/rtools/main.py [--kicad_pcb <filepath>] [--kicad_pro <filepath>] [--save_file <filename>]
 ```
 
 ## Thanks to

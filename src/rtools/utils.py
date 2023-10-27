@@ -85,6 +85,28 @@ def circle_space_set(pos, radius) -> set:
     return pos_set
 
 
+def oval_space_set(pos, radius_a, radius_b) -> set:
+    pos_set = {str(pos)}
+    for x_i in range(int(radius_a) + 1):
+        for y_i in range(int(radius_b) + 1):
+            if x_i == 0 and y_i == 0:
+                continue
+            if (radius_b ** 2) * (x_i ** 2) + (radius_a ** 2) * (y_i ** 2) <= (radius_a ** 2) * (radius_b ** 2):
+                if x_i == 0:
+                    pos_set.add(str([pos[0], pos[1] + y_i, pos[2]]))
+                    pos_set.add(str([pos[0], pos[1] - y_i, pos[2]]))
+                elif y_i == 0:
+                    pos_set.add(str([pos[0] + x_i, pos[1], pos[2]]))
+                    pos_set.add(str([pos[0] - x_i, pos[1], pos[2]]))
+                else:
+                    pos_set.add(str([pos[0] + x_i, pos[1] + y_i, pos[2]]))
+                    pos_set.add(str([pos[0] - x_i, pos[1] + y_i, pos[2]]))
+                    pos_set.add(str([pos[0] - x_i, pos[1] - y_i, pos[2]]))
+                    pos_set.add(str([pos[0] + x_i, pos[1] - y_i, pos[2]]))
+
+    return pos_set
+
+
 def rect_space(pos, a, b) -> list:
     x, y, z = pos
     a = int(a)
@@ -124,7 +146,7 @@ def via_cost_function_2(x, alpha):
 
 def via_cost_function_3(x, critical):
     if x > critical or x < -critical:
-        return 1000 * critical**4 / abs(x**4)
+        return 1000 * critical ** 4 / abs(x ** 4)
     else:
         return 1000
 
