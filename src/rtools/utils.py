@@ -27,6 +27,16 @@ def diagonal_distance_2d(start, end):
     return max_distance - min_distance + 1.414 * min_distance
 
 
+def max_of_x_y(start, end):
+    x_distance = abs(start[0] - end[0])
+    y_distance = abs(start[1] - end[1])
+
+    if x_distance > y_distance:
+        return x_distance
+    else:
+        return y_distance
+
+
 def read(filename):
     file = open(filename, 'r')
     file_info = {}

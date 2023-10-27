@@ -3,7 +3,8 @@ import time
 
 import numpy as np
 
-from rtools.utils import diagonal_distance_3d, circle_space, rect_space, diagonal_distance_2d, via_cost_function_3
+from rtools.utils import diagonal_distance_3d, circle_space, rect_space, diagonal_distance_2d, via_cost_function_3, \
+    max_of_x_y
 
 
 class CostGraph:
@@ -60,6 +61,7 @@ class AStarNode:
         """ the set of the ending positions """
 
         self.h_score = diagonal_distance_3d(cur_pos, end_pos)
+        # self.h_score = max_of_x_y(cur_pos, end_pos)
         self.g_score = g_score
 
         self.f_score = self.g_score + self.h_score
@@ -87,7 +89,7 @@ class AStarNode:
                           space_cost_graph, clearance_with_track, clearance_with_microvia):
         via_flag = False
         if self.cur_pos[2] != next_pos[2]:
-            g_cost = 10
+            g_cost = 10  # 10
             via_flag = True
         elif self.cur_pos[0] == next_pos[0] or self.cur_pos[1] == next_pos[1]:
             g_cost = 1
@@ -157,6 +159,46 @@ class AStarNode:
 
         return self.g_score + g_cost
 
+    def calculate_g_score_moxy(self, direct, next_pos, occupied_msg,
+                               space_cost_graph, clearance_with_track, clearance_with_microvia):
+        via_flag = False
+        if self.cur_pos[2] != next_pos[2]:
+            g_cost = 10  # 10
+            via_flag = True
+        elif self.cur_pos[0] == next_pos[0] or self.cur_pos[1] == next_pos[1]:
+            g_cost = 1
+        else:
+            g_cost = 1.414
+
+        if self.start_pos[2] != next_pos[2]:
+            g_cost *= 2.236
+
+        if direct is not None and not via_flag and \
+                direct != [next_pos[0] - self.cur_pos[0], next_pos[1] - self.cur_pos[1], next_pos[2] - self.cur_pos[2]]:
+            g_cost += 0.1  # bend cost
+
+        if via_flag or (str(next_pos) not in self.end_pos_set):
+            if via_flag:
+                g_cost += space_cost_graph.via_space_cost(self.cur_pos)
+            if space_cost_graph.is_extended(next_pos):
+                if via_flag:
+                    space_cost = space_cost_graph.via_space_cost(next_pos)
+                else:
+                    space_cost = space_cost_graph.track_space_cost(next_pos)
+                    # space_cost = 0
+            else:
+                track_space_cost = calculate_space(next_pos, clearance_with_track, occupied_msg)
+                via_space_cost = calculate_space(next_pos, clearance_with_microvia, occupied_msg)
+                space_cost_graph.extend_grid(next_pos, track_space_cost, via_space_cost)
+                if via_flag:
+                    space_cost = via_space_cost
+                else:
+                    space_cost = track_space_cost
+                    # space_cost = 0
+            g_cost += space_cost
+
+        return self.g_score + g_cost
+
     def get_neighbors(self, occupied_msg: dict, pad_list: list, space_cost_graph: CostGraph,
                       clearance_with_track: int, clearance_with_microvia: int, grid_size: list) -> list:
         """
@@ -185,6 +227,9 @@ class AStarNode:
             g_score = self.calculate_g_score(direct, pos, occupied_msg, pad_list,
                                              space_cost_graph, clearance_with_track, clearance_with_microvia)
 
+            # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
+            #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
+
             item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
             neighbors.append(item)
         # go to the east-north
@@ -193,6 +238,9 @@ class AStarNode:
 
             g_score = self.calculate_g_score(direct, pos, occupied_msg, pad_list,
                                              space_cost_graph, clearance_with_track, clearance_with_microvia)
+
+            # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
+            #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
             item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
             neighbors.append(item)
@@ -203,6 +251,9 @@ class AStarNode:
             g_score = self.calculate_g_score(direct, pos, occupied_msg, pad_list,
                                              space_cost_graph, clearance_with_track, clearance_with_microvia)
 
+            # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
+            #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
+
             item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
             neighbors.append(item)
         # go to the west-north
@@ -211,6 +262,9 @@ class AStarNode:
 
             g_score = self.calculate_g_score(direct, pos, occupied_msg, pad_list,
                                              space_cost_graph, clearance_with_track, clearance_with_microvia)
+
+            # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
+            #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
             item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
             neighbors.append(item)
@@ -221,6 +275,9 @@ class AStarNode:
             g_score = self.calculate_g_score(direct, pos, occupied_msg, pad_list,
                                              space_cost_graph, clearance_with_track, clearance_with_microvia)
 
+            # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
+            #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
+
             item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
             neighbors.append(item)
         # go to the west-south
@@ -229,6 +286,9 @@ class AStarNode:
 
             g_score = self.calculate_g_score(direct, pos, occupied_msg, pad_list,
                                              space_cost_graph, clearance_with_track, clearance_with_microvia)
+
+            # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
+            #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
             item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
             neighbors.append(item)
@@ -239,6 +299,9 @@ class AStarNode:
             g_score = self.calculate_g_score(direct, pos, occupied_msg, pad_list,
                                              space_cost_graph, clearance_with_track, clearance_with_microvia)
 
+            # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
+            #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
+
             item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
             neighbors.append(item)
         # go to the east-south
@@ -247,6 +310,9 @@ class AStarNode:
 
             g_score = self.calculate_g_score(direct, pos, occupied_msg, pad_list,
                                              space_cost_graph, clearance_with_track, clearance_with_microvia)
+
+            # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
+            #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
             item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
             neighbors.append(item)
@@ -258,6 +324,9 @@ class AStarNode:
             g_score = self.calculate_g_score(direct, pos, occupied_msg, pad_list,
                                              space_cost_graph, clearance_with_track, clearance_with_microvia)
 
+            # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
+            #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
+
             item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
             neighbors.append(item)
         # go to downside through a via
@@ -266,6 +335,9 @@ class AStarNode:
 
             g_score = self.calculate_g_score(direct, pos, occupied_msg, pad_list,
                                              space_cost_graph, clearance_with_track, clearance_with_microvia)
+
+            # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
+            #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
             item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
             neighbors.append(item)
@@ -374,7 +446,7 @@ class AStarRouter:
             # convert the start position from string (which is hashable) to list
             start_pos = list(int(char) for char in pos.strip('[]').split(', '))
             # create a starting item and add it to open set and its global index table
-            start_item = AStarNode(start_pos, start, end, end_set, 0.0, None)
+            start_item = AStarNode(start_pos, start_pos, end, end_set, 0.0, None)
             heapq.heappush(open_set, start_item)
             open_set_graph[start_pos[0]][start_pos[1]][start_pos[2]] = start_item
 
