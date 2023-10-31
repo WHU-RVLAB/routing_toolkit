@@ -1,4 +1,4 @@
-import math
+from math import ceil
 
 from rtools.utils import diagonal_distance_3d, circle_space_set, oval_space_set, rect_space_set
 
@@ -8,7 +8,7 @@ def to_grid_coord_round_down(real_coord):
 
 
 def to_grid_coord_round_up(real_coord):
-    return math.ceil(real_coord * 3 / 0.2)  # 0.25
+    return ceil(real_coord * 3 / 0.2)  # 0.25
 
 
 def to_real_coord(grid_coord):
@@ -72,10 +72,12 @@ class NetClass:
 
 
 class Net:
-    def __init__(self, net_id, net_name, net_class):
+    def __init__(self, net_id, net_name, net_class, ignore):
         self.net_id = net_id
         self.net_name = net_name
         self.net_class = net_class
+        self.is_ignore = ignore
+
         self.pad_list = []
         self.pad_num = 0
 
@@ -185,13 +187,45 @@ class Net:
         self.two_pin_net_list = two_pin_nets
 
 
+grid_cell_base_cost = {
+    'pad': 1000,
+    'track': 1000,
+    'via': 1000
+}
+
+
+class GridCell:
+    def __init__(self, cell_type):
+        self.cell_type = cell_type
+        self.base_cost = 0
+        if cell_type in grid_cell_base_cost:
+            self.base_cost = grid_cell_base_cost[cell_type]
+
+    def get_base_cost(self):
+        return self.base_cost
+
+    def add_base_cost(self, cell_type):
+        if cell_type in grid_cell_base_cost:
+            self.base_cost += grid_cell_base_cost[cell_type]
+
+    def del_base_cost(self, cell_type):
+        if cell_type in grid_cell_base_cost:
+            self.base_cost -= grid_cell_base_cost[cell_type]
+
+    def is_vacant(self):
+        if self.base_cost <= 0:
+            return True
+        else:
+            return False
+
+
 class GridEnv:
-    def __init__(self, board_area, layer_num, net_num, net_list, net_class, pad_obstacles):
+    def __init__(self, board_area, layers_, net_num, net_list, net_class, pad_obstacles):
         """
         Create the grid environment based on dataset
 
         :param board_area:
-        :param layer_num:
+        :param layers_:
         :param net_num:
         :param net_list:
         :param net_class:
@@ -199,7 +233,7 @@ class GridEnv:
         """
         self.grid_size = [to_grid_coord_round_down(board_area[0] - board_area[1]),
                           to_grid_coord_round_down(board_area[2] - board_area[3]),
-                          layer_num]
+                          len(layers_)]
         """ the size of the grid graph """
 
         self.net_num = net_num
@@ -208,10 +242,13 @@ class GridEnv:
         self.netlist, self.net_order = self.load_net_list(net_list, net_class)
         """ a list of the pads from each net """
 
+        self.net_obstacles = self.load_trace_items(net_list, board_area[1], board_area[3], layers_)
+
         self.pad_obstacles = self.load_pad_obstacles(pad_obstacles)
         """ a list of the pads do not have a net """
 
-        self.occupied_coord = self.generate_occupied_coord()
+        self.occupied_coord = None
+        self.generate_occupied_coord()
         """ a dict stores the occupied grids """
 
     def load_net_list(self, net_list, net_class):
@@ -223,7 +260,9 @@ class GridEnv:
                       NetClass(net_class[net_info.netClass].track_width,
                                net_class[net_info.netClass].microvia_diameter,
                                net_class[net_info.netClass].clearance_with_track,
-                               net_class[net_info.netClass].clearance_with_microvia))
+                               net_class[net_info.netClass].clearance_with_microvia),
+                      net_info.is_ignore)
+
             for pad_info in net_info.padList:
                 pad = Pad(pad_info.position, pad_info.layer, pad_info.shape,
                           pad_info.size, pad_info.type, pad_info.netID)
@@ -238,6 +277,55 @@ class GridEnv:
 
         return net_list_tmp, net_order
 
+    def load_trace_items(self, net_list, x0, y0, layer_dict):
+        trace_items = {
+            'route': [],
+            'distance': []
+        }
+
+        for i in range(self.net_num):
+            net_info = net_list[i + 1]
+            if net_info.is_ignore:
+                for item_info in net_info.trace_items['segment']:
+                    z = layer_dict[item_info.layer]
+                    start = [to_grid_coord_round_down(item_info.start.X - x0),
+                             to_grid_coord_round_down(item_info.start.Y - y0),
+                             z]
+                    end = [to_grid_coord_round_down(item_info.end.X - x0),
+                           to_grid_coord_round_down(item_info.end.Y - y0),
+                           z]
+
+                    # if start[0] != end[0] or start[1] != end[1]:
+                    route = [start, end]
+                    distance = [to_grid_coord_round_up(item_info.width), 0]
+
+                    trace_items['route'].append(route)
+                    trace_items['distance'].append(distance)
+
+                for item_info in net_info.trace_items['via']:
+                    z_list = []
+                    for layer in layer_dict[item_info.layers]:
+                        z_list.append(layer_dict[layer])
+                    z_min = min(z_list)
+                    z_max = max(z_list)
+                    start = [to_grid_coord_round_down(item_info.position.X - x0),
+                             to_grid_coord_round_down(item_info.position.Y - y0),
+                             z_min]
+                    end = [to_grid_coord_round_down(item_info.position.X - x0),
+                           to_grid_coord_round_down(item_info.position.Y - y0),
+                           z_max]
+                    route = [start, end]
+
+                    distance = [0, to_grid_coord_round_up(item_info.size)]
+
+                    trace_items['route'].append(route)
+                    trace_items['distance'].append(distance)
+
+                for item_info in net_info.trace_items['arc']:
+                    pass
+
+        return trace_items
+
     def load_pad_obstacles(self, pad_obstacles):
         pad_list_tmp = []
         for pad_info in pad_obstacles:
@@ -249,13 +337,13 @@ class GridEnv:
 
         return pad_list_tmp
 
-    def generate_occupied_coord(self) -> dict:
+    def generate_occupied_coord(self):
         """
         Create an initial dict which contain the obstacle grid
 
         :return: the dict of the occupied grids
         """
-        occupied_dict = {}
+        self.occupied_coord = {}
 
         # Set grid graph refer to boundary list
         # TODO
@@ -265,47 +353,59 @@ class GridEnv:
             net = self.netlist[i]
             for j in range(net.pad_num):
                 pad = net.pad_list[j]
-
-                for hide_pos in pad.occupied_coord_set:
-                    if hide_pos in occupied_dict:
-                        occupied_dict[hide_pos] += 1000
-                    else:
-                        occupied_dict[hide_pos] = 1000  # Large Enough
+                self.add_pad_effect(pad.occupied_coord_set)
 
         # Set obstacle pad
         for obs_pad in self.pad_obstacles:
-            for hide_pos in obs_pad.occupied_coord_set:
-                if hide_pos in occupied_dict:
-                    occupied_dict[hide_pos] += 1000
-                else:
-                    occupied_dict[hide_pos] = 1000  # Large Enough
+            self.add_pad_effect(obs_pad.occupied_coord_set)
 
-        return occupied_dict
+        # Set net obstacles
+        i = 0
+        net_obstacles = self.net_obstacles
+        for route in net_obstacles['route']:
+            distance = net_obstacles['distance'][i]
+            self.add_trace_coord(route, distance)
+            i += 1
 
-    def add_pin_effect(self, pad_size_set: set):
+    def add_occupied_coord(self, hide_pos, cell_type):
+        if hide_pos in self.occupied_coord:
+            self.occupied_coord[hide_pos].add_base_cost(cell_type)
+        else:
+            self.occupied_coord[hide_pos] = GridCell(cell_type)  # Large Enough
+
+    def del_occupied_coord(self, hide_pos, cell_type):  # ILLEGAL POS ? TODO
+        self.occupied_coord[hide_pos].del_base_cost(cell_type)
+        if self.occupied_coord[hide_pos].is_vacant():
+            del self.occupied_coord[str(hide_pos)]
+
+    def add_pad_effect(self, pad_size_set: set):
         """
         Add the base cost of the grids of pad_size_set to the occupied grids
 
         :param pad_size_set: the set of the coordinates of the pad
         :return:
         """
+        # for hide_pos in pad_size_set:
+        #     if hide_pos in self.occupied_coord:
+        #         self.occupied_coord[hide_pos] += 1000
+        #     else:
+        #         self.occupied_coord[hide_pos] = 1000  # Large Enough
         for hide_pos in pad_size_set:
-            if hide_pos in self.occupied_coord:
-                self.occupied_coord[hide_pos] += 1000
-            else:
-                self.occupied_coord[hide_pos] = 1000  # Large Enough
+            self.add_occupied_coord(hide_pos, 'pad')
 
-    def eliminate_pin_effect(self, pad_size_set: set):
+    def del_pad_effect(self, pad_size_set: set):
         """
         Delete the base cost of the grids of pad_size_set to the occupied grids
 
         :param pad_size_set: the set of the coordinates of the pad
         :return:
         """
+        # for hide_pos in pad_size_set:
+        #     self.occupied_coord[hide_pos] -= 1000
+        #     if self.occupied_coord[hide_pos] <= 0:
+        #         del self.occupied_coord[str(hide_pos)]
         for hide_pos in pad_size_set:
-            self.occupied_coord[hide_pos] -= 1000
-            if self.occupied_coord[hide_pos] <= 0:
-                del self.occupied_coord[str(hide_pos)]
+            self.del_occupied_coord(hide_pos, 'pad')
 
     def get_route(self, origin_route: list):
         """
@@ -330,7 +430,7 @@ class GridEnv:
                     route.append(origin_route[i])
         return route
 
-    def add_occupied_coord(self, route: list, distance: list):
+    def add_trace_coord(self, route: list, distance: list):
         """
         Add the base cost of the routing path to the occupied grid
 
@@ -346,7 +446,9 @@ class GridEnv:
             x_1, y_1, z_1 = route[i + 1]
             direct = [x_1 - x_0, y_1 - y_0, z_1 - z_0]
             if direct[0] == 0:
+                via_flag = False
                 if direct[1] == 0:  # go through a via
+                    via_flag = True
                     x_max = x_0 + via_d + 1
                     x_min = x_0 - via_d
                     y_max = y_0 + via_d + 1
@@ -382,14 +484,26 @@ class GridEnv:
                 if z_max > self.grid_size[2]:
                     z_max = self.grid_size[2]
 
-                for x_i in range(x_max - x_min):
-                    for y_i in range(y_max - y_min):
-                        for z_i in range(z_max - z_min):
-                            hide_pos = [x_min + x_i, y_min + y_i, z_min + z_i]
-                            if str(hide_pos) in self.occupied_coord:
-                                self.occupied_coord[str(hide_pos)] += 1000
-                            else:
-                                self.occupied_coord[str(hide_pos)] = 1000  # Large Enough
+                if via_flag:
+                    for x_i in range(x_max - x_min):
+                        for y_i in range(y_max - y_min):
+                            for z_i in range(z_max - z_min):
+                                hide_pos = [x_min + x_i, y_min + y_i, z_min + z_i]
+                                # if str(hide_pos) in self.occupied_coord:
+                                #     self.occupied_coord[str(hide_pos)] += 1000
+                                # else:
+                                #     self.occupied_coord[str(hide_pos)] = 1000  # Large Enough
+                                self.add_occupied_coord(str(hide_pos), 'via')
+                else:
+                    for x_i in range(x_max - x_min):
+                        for y_i in range(y_max - y_min):
+                            for z_i in range(z_max - z_min):
+                                hide_pos = [x_min + x_i, y_min + y_i, z_min + z_i]
+                                # if str(hide_pos) in self.occupied_coord:
+                                #     self.occupied_coord[str(hide_pos)] += 1000
+                                # else:
+                                #     self.occupied_coord[str(hide_pos)] = 1000  # Large Enough
+                                self.add_occupied_coord(str(hide_pos), 'track')
             elif direct[1] == 0:  # go to the east or west
                 if x_0 < x_1:  # go to the east
                     x_max = x_1 + d_line + 1
@@ -419,10 +533,11 @@ class GridEnv:
                     for y_i in range(y_max - y_min):
                         for z_i in range(z_max - z_min):
                             hide_pos = [x_min + x_i, y_min + y_i, z_min + z_i]
-                            if str(hide_pos) in self.occupied_coord:
-                                self.occupied_coord[str(hide_pos)] += 1000
-                            else:
-                                self.occupied_coord[str(hide_pos)] = 1000  # Large Enough
+                            # if str(hide_pos) in self.occupied_coord:
+                            #     self.occupied_coord[str(hide_pos)] += 1000
+                            # else:
+                            #     self.occupied_coord[str(hide_pos)] = 1000  # Large Enough
+                            self.add_occupied_coord(str(hide_pos), 'track')
             else:  # go diagonally
                 if direct[0] > 0:
                     delta_x = 1
@@ -454,15 +569,16 @@ class GridEnv:
                     for x_i in range(x_max - x_min):
                         for y_i in range(y_max - y_min):
                             hide_pos = [x_min + x_i, y_min + y_i, z_0]
-                            if str(hide_pos) in self.occupied_coord:
-                                self.occupied_coord[str(hide_pos)] += 1000
-                            else:
-                                self.occupied_coord[str(hide_pos)] = 1000  # Large Enough
+                            # if str(hide_pos) in self.occupied_coord:
+                            #     self.occupied_coord[str(hide_pos)] += 1000
+                            # else:
+                            #     self.occupied_coord[str(hide_pos)] = 1000  # Large Enough
+                            self.add_occupied_coord(str(hide_pos), 'track')
 
                     x_0 += delta_x
                     y_0 += delta_y
 
-    def del_occupied_coord(self, old_route: list, distance: list):
+    def del_trace_coord(self, old_route: list, distance: list):
         """
         Add the base cost of the routing path to the occupied grid
 
@@ -478,7 +594,9 @@ class GridEnv:
             x_1, y_1, z_1 = old_route[i + 1]
             direct = [x_1 - x_0, y_1 - y_0, z_1 - z_0]
             if direct[0] == 0:
+                via_flag = False
                 if direct[1] == 0:  # go through a via
+                    via_flag = True
                     x_max = x_0 + via_d + 1
                     x_min = x_0 - via_d
                     y_max = y_0 + via_d + 1
@@ -514,13 +632,24 @@ class GridEnv:
                 if z_max > self.grid_size[2]:
                     z_max = self.grid_size[2]
 
-                for x_i in range(x_max - x_min):
-                    for y_i in range(y_max - y_min):
-                        for z_i in range(z_max - z_min):
-                            hide_pos = [x_min + x_i, y_min + y_i, z_min + z_i]
-                            self.occupied_coord[str(hide_pos)] -= 1000
-                            if self.occupied_coord[str(hide_pos)] <= 0:
-                                del self.occupied_coord[str(hide_pos)]
+                if via_flag:
+                    for x_i in range(x_max - x_min):
+                        for y_i in range(y_max - y_min):
+                            for z_i in range(z_max - z_min):
+                                hide_pos = [x_min + x_i, y_min + y_i, z_min + z_i]
+                                # self.occupied_coord[str(hide_pos)] -= 1000
+                                # if self.occupied_coord[str(hide_pos)] <= 0:
+                                #     del self.occupied_coord[str(hide_pos)]
+                                self.del_occupied_coord(str(hide_pos), 'via')
+                else:
+                    for x_i in range(x_max - x_min):
+                        for y_i in range(y_max - y_min):
+                            for z_i in range(z_max - z_min):
+                                hide_pos = [x_min + x_i, y_min + y_i, z_min + z_i]
+                                # self.occupied_coord[str(hide_pos)] -= 1000
+                                # if self.occupied_coord[str(hide_pos)] <= 0:
+                                #     del self.occupied_coord[str(hide_pos)]
+                                self.del_occupied_coord(str(hide_pos), 'track')
             elif direct[1] == 0:  # go to the east or west
                 if x_0 < x_1:  # go to the east
                     x_max = x_1 + d_line + 1
@@ -543,9 +672,10 @@ class GridEnv:
                 for x_i in range(x_max - x_min):
                     for y_i in range(y_max - y_min):
                         hide_pos = [x_min + x_i, y_min + y_i, z_0]
-                        self.occupied_coord[str(hide_pos)] -= 1000
-                        if self.occupied_coord[str(hide_pos)] <= 0:
-                            del self.occupied_coord[str(hide_pos)]
+                        # self.occupied_coord[str(hide_pos)] -= 1000
+                        # if self.occupied_coord[str(hide_pos)] <= 0:
+                        #     del self.occupied_coord[str(hide_pos)]
+                        self.del_occupied_coord(str(hide_pos), 'track')
             else:  # go diagonally
                 if direct[0] > 0:
                     delta_x = 1
@@ -577,9 +707,10 @@ class GridEnv:
                     for x_i in range(x_max - x_min):
                         for y_i in range(y_max - y_min):
                             hide_pos = [x_min + x_i, y_min + y_i, z_0]
-                            self.occupied_coord[str(hide_pos)] -= 1000
-                            if self.occupied_coord[str(hide_pos)] <= 0:
-                                del self.occupied_coord[str(hide_pos)]
+                            # self.occupied_coord[str(hide_pos)] -= 1000
+                            # if self.occupied_coord[str(hide_pos)] <= 0:
+                            #     del self.occupied_coord[str(hide_pos)]
+                            self.del_occupied_coord(str(hide_pos), 'track')
 
                     x_0 += delta_x
                     y_0 += delta_y
@@ -600,12 +731,14 @@ class GridEnv:
             if len(self.netlist[net_i].two_pin_net_route_list) >= self.netlist[net_i].two_pin_net_num:
                 # the multi-pin net is routed completely
                 for i in range(self.netlist[net_i].pad_num):
-                    self.add_pin_effect(self.netlist[net_i].pad_list[i].occupied_coord_set)
+                    self.add_pad_effect(self.netlist[net_i].pad_list[i].occupied_coord_set)
 
                 for route in self.netlist[net_i].two_pin_net_route_list:
                     distance = [self.netlist[net_i].net_class.track_width,
                                 self.netlist[net_i].net_class.microvia_diameter]
-                    self.add_occupied_coord(route, distance)
+                    self.add_trace_coord(route, distance)
+        else:
+            self.netlist[net_i].two_pin_net_route_list.append(single_route)
 
     # TODO
     # def breakup(self):
@@ -625,7 +758,7 @@ class GridEnv:
         :return:
         """
         for i in range(self.netlist[net_i].pad_num):
-            self.eliminate_pin_effect(self.netlist[net_i].pad_list[i].occupied_coord_set)
+            self.del_pad_effect(self.netlist[net_i].pad_list[i].occupied_coord_set)
 
     def merge_route(self) -> list:
         """

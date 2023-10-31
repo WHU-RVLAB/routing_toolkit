@@ -1,7 +1,7 @@
-import heapq
-import time
+from heapq import heapify, heappush, heappop
+from time import time_ns, time
 
-import numpy as np
+from numpy import ones
 
 from rtools.utils import diagonal_distance_3d, circle_space, rect_space, diagonal_distance_2d, via_cost_function_3, \
     max_of_x_y
@@ -9,9 +9,9 @@ from rtools.utils import diagonal_distance_3d, circle_space, rect_space, diagona
 
 class CostGraph:
     def __init__(self, grid_size: list):
-        self.track_space_cost_graph = (- np.ones(grid_size)).tolist()
+        self.track_space_cost_graph = (- ones(grid_size)).tolist()
         """ store the space cost calculated by track width and clearance, the undefined space cost is -1 """
-        self.via_space_cost_graph = (- np.ones(grid_size)).tolist()
+        self.via_space_cost_graph = (- ones(grid_size)).tolist()
         """ store the space cost calculated by microvia width and clearance, the undefined space cost is -1 """
 
     def is_extended(self, pos: list) -> bool:
@@ -31,6 +31,15 @@ class CostGraph:
         x, y, z = pos
         return self.via_space_cost_graph[x][y][z]
 
+    def is_legal_track_cost(self, cur_pos: list):
+        x, y, z = cur_pos
+        return self.track_space_cost_graph[x][y][z] < 100
+
+    def is_legal_via_cost(self, pre_pos: list, cur_pos: list):
+        pre_x, pre_y, pre_z = pre_pos
+        x, y, z = cur_pos
+        return self.via_space_cost_graph[x][y][z] + self.via_space_cost_graph[pre_x][pre_y][pre_z] < 100
+
 
 def calculate_space(pos, radius, occupied_msg, shape='rect'):
     cached_trace_cost = 0
@@ -40,8 +49,11 @@ def calculate_space(pos, radius, occupied_msg, shape='rect'):
         pos_list = rect_space(pos, radius, radius)
     for coord in pos_list:
         if str(coord) in occupied_msg:
-            cached_trace_cost += occupied_msg[str(coord)]
+            cached_trace_cost += occupied_msg[str(coord)].get_base_cost()
     return cached_trace_cost
+
+
+calculate_space_time = 0
 
 
 class AStarNode:
@@ -59,18 +71,18 @@ class AStarNode:
         """ the coordinate of the ending position """
         self.end_pos_set = end_pos_set
         """ the set of the ending positions """
+        self.parent = parent
+        """ parent node of current node """
 
         self.h_score = diagonal_distance_3d(cur_pos, end_pos)
         # self.h_score = max_of_x_y(cur_pos, end_pos)
+        # self.h_score = self.calculate_h_score()
         self.g_score = g_score
 
         self.f_score = self.g_score + self.h_score
         """ f(x) = g(x) + h(x) """
         self.min_f_score = diagonal_distance_3d(start_pos, end_pos)
         """ the theoretical value of f(x) """
-
-        self.parent = parent
-        """ parent node of current node """
 
     def __lt__(self, other) -> bool:
         return self.f_score < other.f_score
@@ -83,7 +95,17 @@ class AStarNode:
         :return:
         """
         self.g_score = g_score_with_cost
-        self.f_score = self.g_score + self.h_score
+        self.f_score = g_score_with_cost + self.h_score
+
+    def set_h_score(self, h_score: float):
+        """
+        set new h_score and recalculate the f_score
+
+        :param h_score: new g_score
+        :return:
+        """
+        self.h_score = h_score
+        self.f_score = self.g_score + h_score
 
     def calculate_g_score(self, direct, next_pos, occupied_msg, pad_list,
                           space_cost_graph, clearance_with_track, clearance_with_microvia):
@@ -99,6 +121,8 @@ class AStarNode:
         if direct is not None and not via_flag and \
                 direct != [next_pos[0] - self.cur_pos[0], next_pos[1] - self.cur_pos[1], next_pos[2] - self.cur_pos[2]]:
             g_cost += 0.1  # bend cost
+
+        start_time = time_ns()
 
         if via_flag or (str(next_pos) not in self.end_pos_set):
             if via_flag:
@@ -117,6 +141,10 @@ class AStarNode:
                 else:
                     space_cost = track_space_cost
             g_cost += space_cost
+
+        end_time = time_ns()
+        global calculate_space_time
+        calculate_space_time += end_time - start_time
 
         # # Set Via cost
         # if via_flag:
@@ -199,6 +227,27 @@ class AStarNode:
 
         return self.g_score + g_cost
 
+    def calculate_h_score(self):
+        h_score = float('inf')
+        cur_pos = self.cur_pos
+        for end_pos_str in self.end_pos_set:
+            end_pos = list(int(char) for char in end_pos_str.strip('[]').split(', '))
+            h_score_tmp = diagonal_distance_3d(cur_pos, end_pos)
+            if cur_pos[0] == end_pos[0] or cur_pos[1] == end_pos[1] or \
+                    abs(cur_pos[0] - end_pos[0]) == abs(cur_pos[1] - end_pos[1]):
+                h_score_tmp -= 0.5
+
+            h_score = min(h_score, h_score_tmp)
+
+        if self.parent is None or self.parent.parent is None or \
+                (self.parent.parent.cur_pos[2] == self.parent.cur_pos[2] and
+                 self.parent.cur_pos[2] == cur_pos[2] and
+                 self.parent.parent.cur_pos[0]-self.parent.cur_pos[0] == self.parent.cur_pos[0]-cur_pos[0] and
+                 self.parent.parent.cur_pos[1]-self.parent.cur_pos[1] == self.parent.cur_pos[1]-cur_pos[1]):
+            h_score -= 0.5
+
+        return h_score
+
     def get_neighbors(self, occupied_msg: dict, pad_list: list, space_cost_graph: CostGraph,
                       clearance_with_track: int, clearance_with_microvia: int, grid_size: list) -> list:
         """
@@ -230,8 +279,9 @@ class AStarNode:
             # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
             #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
-            item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
-            neighbors.append(item)
+            if space_cost_graph.is_legal_track_cost(pos):
+                item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
+                neighbors.append(item)
         # go to the east-north
         if x < grid_size[0] - 1 and y < grid_size[1] - 1 and direct != [-1, -1, 0]:
             pos = [x + 1, y + 1, z]
@@ -242,8 +292,9 @@ class AStarNode:
             # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
             #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
-            item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
-            neighbors.append(item)
+            if space_cost_graph.is_legal_track_cost(pos):
+                item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
+                neighbors.append(item)
         # go to the north
         if y < grid_size[1] - 1 and direct != [0, -1, 0]:
             pos = [x, y + 1, z]
@@ -254,8 +305,9 @@ class AStarNode:
             # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
             #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
-            item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
-            neighbors.append(item)
+            if space_cost_graph.is_legal_track_cost(pos):
+                item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
+                neighbors.append(item)
         # go to the west-north
         if x > 0 and y < grid_size[1] - 1 and direct != [1, -1, 0]:
             pos = [x - 1, y + 1, z]
@@ -266,8 +318,9 @@ class AStarNode:
             # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
             #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
-            item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
-            neighbors.append(item)
+            if space_cost_graph.is_legal_track_cost(pos):
+                item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
+                neighbors.append(item)
         # go to the west
         if x > 0 and direct != [1, 0, 0]:
             pos = [x - 1, y, z]
@@ -278,8 +331,9 @@ class AStarNode:
             # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
             #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
-            item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
-            neighbors.append(item)
+            if space_cost_graph.is_legal_track_cost(pos):
+                item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
+                neighbors.append(item)
         # go to the west-south
         if x > 0 and y > 0 and direct != [1, 1, 0]:
             pos = [x - 1, y - 1, z]
@@ -290,8 +344,9 @@ class AStarNode:
             # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
             #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
-            item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
-            neighbors.append(item)
+            if space_cost_graph.is_legal_track_cost(pos):
+                item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
+                neighbors.append(item)
         # go to the south
         if y > 0 and direct != [0, 1, 0]:
             pos = [x, y - 1, z]
@@ -302,8 +357,9 @@ class AStarNode:
             # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
             #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
-            item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
-            neighbors.append(item)
+            if space_cost_graph.is_legal_track_cost(pos):
+                item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
+                neighbors.append(item)
         # go to the east-south
         if x < grid_size[0] - 1 and y > 0 and direct != [-1, 1, 0]:
             pos = [x + 1, y - 1, z]
@@ -314,8 +370,9 @@ class AStarNode:
             # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
             #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
-            item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
-            neighbors.append(item)
+            if space_cost_graph.is_legal_track_cost(pos):
+                item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
+                neighbors.append(item)
 
         # go to upside through a via
         if z < grid_size[2] - 1 and direct != [0, 0, -1]:
@@ -327,8 +384,9 @@ class AStarNode:
             # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
             #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
-            item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
-            neighbors.append(item)
+            if space_cost_graph.is_legal_via_cost([x, y, z], pos):
+                item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
+                neighbors.append(item)
         # go to downside through a via
         if z > 0 and direct != [0, 0, 1]:
             pos = [x, y, z - 1]
@@ -339,8 +397,9 @@ class AStarNode:
             # g_score = self.calculate_g_score_moxy(direct, pos, occupied_msg,
             #                                       space_cost_graph, clearance_with_track, clearance_with_microvia)
 
-            item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
-            neighbors.append(item)
+            if space_cost_graph.is_legal_via_cost([x, y, z], pos):
+                item = AStarNode(pos, self.start_pos, self.end_pos, self.end_pos_set, g_score, self)
+                neighbors.append(item)
 
         return neighbors
 
@@ -375,6 +434,11 @@ class AStarRouter:
         self.episode_cost = []
 
         self.route_time = 0
+        self.expend_time = []
+        self.sum_expend_time = 0
+        self.get_neighbors_time = 0
+        self.calculate_space_cost_time = 0
+        self.add_neighbors_time = 0
 
     def run(self, max_episode):
         episode = 0
@@ -382,8 +446,10 @@ class AStarRouter:
             self.route_cost.clear()
             for net_i in range(self.grid_env.net_num):
                 print("routing net{}".format(net_i + 1))
+                # if net_i == 2:
+                #     print('b')
 
-                if self.grid_env.netlist[net_i].two_pin_net_num != 0:
+                if (not self.grid_env.netlist[net_i].is_ignore) and self.grid_env.netlist[net_i].two_pin_net_num != 0:
                     self.grid_env.reset(net_i)
 
                     # rip up the path
@@ -398,13 +464,13 @@ class AStarRouter:
 
                         net_coord_set = net_coord_set | two_pin_net[0].pad_coord_set
 
-                        route_start = time.time()
+                        route_start = time()
 
                         route, cost = self.route_two_pin_net(two_pin_net[0].position, net_coord_set,
                                                              two_pin_net[1].position, two_pin_net[1].pad_coord_set,
                                                              net_i)
 
-                        route_end = time.time()
+                        route_end = time()
                         print('route time = {} s'.format(route_end - route_start))
                         self.route_time += route_end - route_start
 
@@ -438,7 +504,8 @@ class AStarRouter:
 
         open_set = []
         # global index table of open set
-        open_set_graph = np.zeros(self.grid_env.grid_size).tolist()
+        # open_set_graph = np.zeros(self.grid_env.grid_size).tolist()
+        open_set_graph = {}
 
         closed_set = set([])
 
@@ -447,8 +514,11 @@ class AStarRouter:
             start_pos = list(int(char) for char in pos.strip('[]').split(', '))
             # create a starting item and add it to open set and its global index table
             start_item = AStarNode(start_pos, start_pos, end, end_set, 0.0, None)
-            heapq.heappush(open_set, start_item)
-            open_set_graph[start_pos[0]][start_pos[1]][start_pos[2]] = start_item
+            heappush(open_set, start_item)
+            # open_set_graph[start_pos[0]][start_pos[1]][start_pos[2]] = start_item
+            open_set_graph[str(start_pos)] = start_item
+
+            start_time = time_ns()
 
             if not self.space_cost_graph.is_extended(start_pos):
                 # calculate space costs and store them to cost graph
@@ -460,14 +530,28 @@ class AStarRouter:
                                                  self.grid_env.occupied_coord)
                 self.space_cost_graph.extend_grid(start_pos, track_space_cost, via_space_cost)
 
+            end_time = time_ns()
+            self.calculate_space_cost_time += end_time - start_time
+
+        i = 0
+        expend_start = time_ns()
+        # print('{i} times extend: pos is {pos} ; open nodes num is {open}; closed nodes num is {close}'.format(
+        #     i=i, pos='None', open=len(open_set), close=len(closed_set)))
         while open_set:
-            cur_item = heapq.heappop(open_set)
+            i += 1
+
+            cur_item = heappop(open_set)
 
             if str(cur_item.cur_pos) in end_set:  # or cur_item.f_score > 1000 + cur_item.min_f_score:
                 # if the solver has found a legal path or cannot find a legal path
+                expend_end = time_ns()
+                self.expend_time.append((expend_end - expend_start) / i)
+                self.sum_expend_time += expend_end - expend_start
                 return cur_item.generate_path()
             else:
                 closed_set.add(str(cur_item.cur_pos))
+
+                start_time = time_ns()
 
                 neighbor_list = cur_item.get_neighbors(self.grid_env.occupied_coord,
                                                        self.grid_env.netlist[net_id].pad_list,
@@ -476,17 +560,57 @@ class AStarRouter:
                                                        self.grid_env.netlist[net_id].net_class.clearance_with_microvia,
                                                        self.grid_env.grid_size)
 
+                end_time = time_ns()
+                self.get_neighbors_time += end_time - start_time
+
+                global calculate_space_time
+                self.calculate_space_cost_time += calculate_space_time
+                calculate_space_time = 0
+
+                start_time = time_ns()
+
                 for neighbor in neighbor_list:
+                    # if str(neighbor.cur_pos) in closed_set:
+                    #     continue
+                    # else:
+                    #     item = open_set_graph[neighbor.cur_pos[0]][neighbor.cur_pos[1]][neighbor.cur_pos[2]]
+                    #     if item != 0:
+                    #         # the current node has expended
+                    #         if neighbor.g_score < item.g_score:
+                    #             item.set_g_score(neighbor.g_score)
+                    #             item.parent = neighbor.parent
+                    #             heapify(open_set)
+                    #     else:
+                    #         heappush(open_set, neighbor)
+                    #         open_set_graph[neighbor.cur_pos[0]][neighbor.cur_pos[1]][neighbor.cur_pos[2]] = neighbor
                     if str(neighbor.cur_pos) in closed_set:
                         continue
+                        # the current node has expended
+
+                        # item = open_set_graph[str(neighbor.cur_pos)]
+
+                        # if neighbor.g_score < item.g_score - 0.00000001:
+                        #     heappush(open_set, neighbor)
+                        #     open_set_graph[str(neighbor.cur_pos)] = neighbor
+
+                    elif str(neighbor.cur_pos) in open_set_graph:
+                        # the current node has expended
+
+                        item = open_set_graph[str(neighbor.cur_pos)]
+
+                        if neighbor.g_score < item.g_score - 0.00000001:
+                            item.set_g_score(neighbor.g_score)
+                            item.parent = neighbor.parent
+                            heapify(open_set)
+
                     else:
-                        item = open_set_graph[neighbor.cur_pos[0]][neighbor.cur_pos[1]][neighbor.cur_pos[2]]
-                        if item != 0:
-                            # the current node has expended
-                            if neighbor.g_score < item.g_score:
-                                item.set_g_score(neighbor.g_score)
-                                item.parent = neighbor.parent
-                                heapq.heapify(open_set)
-                        else:
-                            heapq.heappush(open_set, neighbor)
-                            open_set_graph[neighbor.cur_pos[0]][neighbor.cur_pos[1]][neighbor.cur_pos[2]] = neighbor
+                        heappush(open_set, neighbor)
+                        open_set_graph[str(neighbor.cur_pos)] = neighbor
+
+                end_time = time_ns()
+                self.add_neighbors_time += end_time - start_time
+
+            # print('{i} times extend: pos is {pos} ; open nodes num is {open} ; closed nodes num is {close}'.format(
+            #     i=i, pos=cur_item.cur_pos, open=len(open_set), close=len(closed_set)))
+
+        return [], 0
