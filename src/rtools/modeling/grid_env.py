@@ -715,7 +715,28 @@ class GridEnv:
                     x_0 += delta_x
                     y_0 += delta_y
 
-    def update(self, single_route: list, net_i: int):
+    def reset(self, net_i: int):
+        """
+        Reset the routing environment and prepare the next routing
+
+        :return:
+        """
+        for i in range(self.netlist[net_i].pad_num):
+            self.del_pad_effect(self.netlist[net_i].pad_list[i].occupied_coord_set)
+
+    def breakup(self, net_id):
+        # breakup the routing
+        net = self.netlist[net_id]
+        net_class = net.net_class
+        old_two_pin_net_route_list = net.two_pin_net_route_list
+        net.two_pin_net_route_list = []
+        for old_route in old_two_pin_net_route_list:
+            distance = [net_class.track_width, net_class.microvia_diameter]
+            self.del_trace_coord(old_route, distance)
+
+        return old_two_pin_net_route_list
+
+    def update_net(self, single_route: list, net_i: int):
         """
         Update the route and cost in the routing environment
 
@@ -728,37 +749,29 @@ class GridEnv:
 
             self.netlist[net_i].two_pin_net_route_list.append(route_result)
 
-            if len(self.netlist[net_i].two_pin_net_route_list) >= self.netlist[net_i].two_pin_net_num:
-                # the multi-pin net is routed completely
-                for i in range(self.netlist[net_i].pad_num):
-                    self.add_pad_effect(self.netlist[net_i].pad_list[i].occupied_coord_set)
-
-                for route in self.netlist[net_i].two_pin_net_route_list:
-                    distance = [self.netlist[net_i].net_class.track_width,
-                                self.netlist[net_i].net_class.microvia_diameter]
-                    self.add_trace_coord(route, distance)
         else:
             self.netlist[net_i].two_pin_net_route_list.append(single_route)
 
-    # TODO
-    # def breakup(self):
-    #     # breakup the routing
-    #     if self.episode > 0 and self.twoPinNet_i == 0:
-    #         self.old_netPinRoute = self.route_combo[self.multiPinNet_i]
-    #         self.route_combo[self.multiPinNet_i] = []
-    #         for old_route in self.old_netPinRoute:
-    #             distance = [self.netlist[self.multiPinNet_i].net_class.track_width,
-    #                         self.netlist[self.multiPinNet_i].net_class.microvia_diameter]
-    #             self.del_occupied_coord(old_route, distance)
+    def recovery_route(self, old_two_pin_net_route_list, net_id):
+        self.netlist[net_id].two_pin_net_route_list = old_two_pin_net_route_list
 
-    def reset(self, net_i: int):
+    def update(self, net_i: int):
         """
-        Reset the routing environment and prepare the next routing
+        Update the route and cost in the routing environment
 
+        :param net_i:
         :return:
         """
+        # the multi-pin net is routed completely
+
         for i in range(self.netlist[net_i].pad_num):
-            self.del_pad_effect(self.netlist[net_i].pad_list[i].occupied_coord_set)
+            self.add_pad_effect(self.netlist[net_i].pad_list[i].occupied_coord_set)
+
+        for route in self.netlist[net_i].two_pin_net_route_list:
+            if route:
+                distance = [self.netlist[net_i].net_class.track_width,
+                            self.netlist[net_i].net_class.microvia_diameter]
+                self.add_trace_coord(route, distance)
 
     def merge_route(self) -> list:
         """

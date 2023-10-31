@@ -8,7 +8,7 @@ from rtools.router import AStarRouter
 
 def routing_arguments():
     parser = ArgumentParser('AStarSolver')
-    parser.add_argument('--episode', type=int, dest='episode', default=1)  # TODO
+    parser.add_argument('--episode', type=int, dest='episode', default=1)
     parser.add_argument('--log', type=str, dest='log', default="log.txt")  # TODO
     parser.add_argument('--trace', type=bool, dest='trace', default=True)  # TODO
     parser.add_argument('--kicad_dir', type=str, dest='kicad_dir', default="example/pcb/bench7_routed/")
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     # build the router based on the model
     router = AStarRouter(model)
     # routing...
-    router.run(1)  # arg.episode
+    router.run(arg.episode)
 
     # write back the routing result
     route_combo = model.merge_route()

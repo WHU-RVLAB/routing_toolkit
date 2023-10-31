@@ -443,7 +443,7 @@ class AStarRouter:
     def run(self, max_episode):
         episode = 0
         while episode < max_episode:
-            self.route_cost.clear()
+            # self.route_cost.clear()
             for net_i in range(self.grid_env.net_num):
                 print("routing net{}".format(net_i + 1))
                 # if net_i == 2:
@@ -453,14 +453,14 @@ class AStarRouter:
                     self.grid_env.reset(net_i)
 
                     # rip up the path
-                    # self.grid_env.breakup()
+                    old_two_pin_net_route_list = None
+                    if episode > 0:
+                        old_two_pin_net_route_list = self.grid_env.breakup(net_i)
 
                     self.space_cost_graph = CostGraph(self.grid_env.grid_size)
                     net_coord_set = set([])
                     route_cost = 0
                     for two_pin_net in self.grid_env.netlist[net_i].two_pin_net_list:
-
-                        # route_start = time.time()
 
                         net_coord_set = net_coord_set | two_pin_net[0].pad_coord_set
 
@@ -477,14 +477,25 @@ class AStarRouter:
                         for pos in route:
                             net_coord_set.add(str(pos))
                         # update the route and cost
-                        self.grid_env.update(route, net_i)
+                        self.grid_env.update_net(route, net_i)
 
                         route_cost += cost
 
-                    self.route_cost.append(route_cost)
+                    if episode > 0:
+                        if route_cost > self.route_cost[net_i]:
+                            self.grid_env.recovery_route(old_two_pin_net_route_list, net_i)
+                        else:
+                            self.route_cost[net_i] = route_cost
+                    else:
+                        self.route_cost.append(route_cost)
+
+                    self.grid_env.update(net_i)
 
                 else:
-                    self.route_cost.append(0)
+                    if episode > 0:
+                        pass
+                    else:
+                        self.route_cost.append(0)
 
             self.episode_cost.append(sum(self.route_cost))
 
