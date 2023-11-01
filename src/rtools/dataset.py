@@ -1,8 +1,8 @@
-import math
+from math import cos, sin, pi
 import os
 
 from kiutils.board import Board
-from kiutils.items.brditems import Segment, Via
+from kiutils.items.brditems import Segment, Via, Arc
 from kiutils.items.common import Position
 
 from rtools.kicad_parser.kicad_pro import KiCadPro
@@ -22,12 +22,25 @@ class Pad:
         self.netID = net_id
 
 
+# TODO
+class TraceItem:
+    pass
+
+
 class Net:
-    def __init__(self, net_id, net_name, net_class):
+    def __init__(self, net_id, net_name, net_class, ignore):
         self.netID = net_id
         self.netName = net_name
         self.netClass = net_class
         self.padList = []
+
+        self.is_ignore = ignore
+
+        self.trace_items = {
+            'segment': [],
+            'via': [],
+            'arc': []
+        }  # TODO read segment & write segment
 
 
 class NetClass:
@@ -49,13 +62,9 @@ class DesignRules:
     pass
 
 
-# TODO
-class TraceItem:
-    pass
-
-
 class Dataset:
-    def __init__(self, kicad_pcb, kicad_pro, save_kicad_pcb):
+    def __init__(self, pcb_dir, kicad_pcb, kicad_pro, save_kicad_pcb):
+        self.pcb_directory = pcb_dir
         self.pcb_filename = kicad_pcb
         self.pro_filename = kicad_pro
         self.save_filename = save_kicad_pcb
@@ -64,6 +73,7 @@ class Dataset:
         self.board_area = []
 
         self.layers = {}
+        self.layers_ = {}
         self.layer_num = 0
 
         self.netList = []
@@ -72,8 +82,6 @@ class Dataset:
         self.netClass = {}
 
         self.pad_obstacles = []
-
-        self.trace_items = {}  # TODO read segment & write segment
 
     def load(self):
         board = Board().from_file(self.pcb_filename)
@@ -99,18 +107,29 @@ class Dataset:
                 layers[i] = layer.name
             i += 1
         self.layers = layers
+        self.layers_ = layers_
         self.layer_num = len(self.layers)
+
+        net_ignore_file = self.pcb_directory + '.netignore'
+        net_ignore = []
+        if os.path.isfile(net_ignore_file):
+            with open(net_ignore_file, "r", encoding='utf-8') as f:  # 打开文本
+                net_ignore = f.read()
 
         self.netList = []
         net_id = 0
         for net in board.nets:
             # parse net_class class
             if net.name != '':
-                board_net = Net(net.number, net.name, project.netSetting.netClassPatterns[net.name])
+                if net.name not in net_ignore:
+                    ignore = False
+                else:
+                    ignore = True
+                board_net = Net(net.number, net.name, project.netSetting.netClassPatterns[net.name], ignore)
                 self.netList.append(board_net)
-                self.trace_items[net_id] = []
+
             else:
-                board_net = Net(net.number, net.name, None)
+                board_net = Net(net.number, net.name, None, True)
                 self.netList.append(board_net)
             net_id += 1
         # self.netList.pop(0)
@@ -122,18 +141,18 @@ class Dataset:
                 if footprint.position.angle is None:
                     theta = 0
                 else:
-                    theta = footprint.position.angle * math.pi / 180
-                dx = pad.position.X * math.cos(theta) + pad.position.Y * math.sin(theta)
-                dy = pad.position.Y * math.cos(theta) - pad.position.X * math.sin(theta)
+                    theta = footprint.position.angle * pi / 180
+                dx = pad.position.X * cos(theta) + pad.position.Y * sin(theta)
+                dy = pad.position.Y * cos(theta) - pad.position.X * sin(theta)
                 x = footprint.position.X + dx
                 y = footprint.position.Y + dy
                 pad_pos = [x - self.board_area[1], y - self.board_area[3], layers_[footprint.layer]]
                 if pad.position.angle is None:
                     alpha = 0
                 else:
-                    alpha = pad.position.angle * math.pi / 180
-                size_x = pad.size.X * math.cos(alpha) + pad.size.Y * math.sin(alpha)
-                size_y = pad.size.Y * math.cos(alpha) - pad.size.X * math.sin(alpha)
+                    alpha = pad.position.angle * pi / 180
+                size_x = pad.size.X * cos(alpha) + pad.size.Y * sin(alpha)
+                size_y = pad.size.Y * cos(alpha) - pad.size.X * sin(alpha)
                 pad_size = [abs(size_x), abs(size_y)]
                 pad_shape = pad.shape
                 if pad.net:
@@ -153,42 +172,72 @@ class Dataset:
                                                 min_hole_clearance)
 
         for trace_item in board.traceItems:
-            self.trace_items[trace_item.net].append(trace_item)
+            if isinstance(trace_item, Segment):
+                self.netList[trace_item.net].trace_items['segment'].append(trace_item)
+            elif isinstance(trace_item, Via):
+                self.netList[trace_item.net].trace_items['via'].append(trace_item)
+            elif isinstance(trace_item, Arc):
+                self.netList[trace_item.net].trace_items['arc'].append(trace_item)
 
         board.to_file()
 
     # TODO how to generate 'tstamp'
     def store_route(self, merge_route_combo):
-        board = Board().from_file(self.pcb_filename)
         i = 1
         item_id = 0
         for net in merge_route_combo:
-            for segment in net:
-                start = [self.board_area[1] + segment[0][0],
-                         self.board_area[3] + segment[0][1],
-                         self.layers[segment[0][2]]]
-                end = [self.board_area[1] + segment[1][0],
-                       self.board_area[3] + segment[1][1],
-                       self.layers[segment[1][2]]]
+            net_info = self.netList[i]
+            if not net_info.is_ignore:
+                trace_items = {
+                    'segment': [],
+                    'via': [],
+                    'arc': []
+                }
 
-                start_pos = Position(start[0], start[1])
-                end_pos = Position(end[0], end[1])
+                for segment in net:
+                    start = [self.board_area[1] + segment[0][0],
+                             self.board_area[3] + segment[0][1],
+                             self.layers[segment[0][2]]]
+                    end = [self.board_area[1] + segment[1][0],
+                           self.board_area[3] + segment[1][1],
+                           self.layers[segment[1][2]]]
 
-                if start[2] == end[2]:
-                    width = self.netClass[self.netList[i].netClass].track_width
-                    layer = start[2]
-                    item = Segment(start_pos, end_pos, width, layer, False, i, str(item_id))
-                    board.traceItems.append(item)
-                else:
-                    size = self.netClass[self.netList[i].netClass].microvia_diameter
-                    drill = self.netClass[self.netList[i].netClass].microvia_drill
-                    layers = [self.layers[0], self.layers[1]]
-                    item = Via('micro', False, start_pos, size, drill, layers, False, False, False, i, str(item_id))
-                    board.traceItems.append(item)
+                    start_pos = Position(start[0], start[1])
+                    end_pos = Position(end[0], end[1])
 
-                item_id += 1
+                    if start[2] == end[2]:
+                        width = self.netClass[net_info.netClass].track_width
+                        layer = start[2]
+                        item = Segment(start_pos, end_pos, width, layer, False, i, str(item_id))
+                        # board.traceItems.append(item)
+                        trace_items['segment'].append(item)
+                    else:
+                        size = self.netClass[net_info.netClass].microvia_diameter
+                        drill = self.netClass[net_info.netClass].microvia_drill
+                        layers = [self.layers[0], self.layers[1]]
+                        item = Via('micro', False, start_pos, size, drill, layers, False, False, False, i, str(item_id))
+                        # board.traceItems.append(item)
+                        trace_items['via'].append(item)
+
+                    item_id += 1
+
+                net_info.trace_items = trace_items
 
             i += 1
+
+    def save(self):
+        board = Board().from_file(self.pcb_filename)
+
+        board.traceItems.clear()
+        trace_items = board.traceItems
+
+        for net in self.netList:
+            for item in net.trace_items['segment']:
+                trace_items.append(item)
+            for item in net.trace_items['via']:
+                trace_items.append(item)
+            for item in net.trace_items['arc']:
+                trace_items.append(item)
 
         logs_dir = 'logs'
         if not os.path.isdir(logs_dir):
