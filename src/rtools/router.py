@@ -6,6 +6,8 @@ from numpy import ones
 from rtools.utils import diagonal_distance_3d, circle_space, rect_space, diagonal_distance_2d, via_cost_function_3, \
     max_of_x_y
 
+from rtools.visualizer import draw_routing
+
 
 class CostGraph:
     def __init__(self, grid_size: list):
@@ -496,6 +498,8 @@ class AStarRouter:
                         pass
                     else:
                         self.route_cost.append(0)
+                if net_i == 86:
+                    draw_routing(self.grid_env)
 
             self.episode_cost.append(sum(self.route_cost))
 
