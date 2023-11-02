@@ -310,6 +310,7 @@ class GridEnv:
 
                 for item_info in net_info.trace_items['via']:
                     z_list = []
+
                     for layer in item_info.layers:
                         z_list.append(layer_dict[layer])
                     z_min = min(z_list)

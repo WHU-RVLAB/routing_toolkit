@@ -13,10 +13,11 @@ def routing_arguments():
     parser.add_argument('--episode', type=int, dest='episode', default=1)
     parser.add_argument('--log', type=str, dest='log', default="log.txt")  # TODO
     parser.add_argument('--trace', type=bool, dest='trace', default=True)  # TODO
-    parser.add_argument('--kicad_dir', type=str, dest='kicad_dir', default="example/pcb/bench2_routed/")
-    parser.add_argument('--kicad_pcb', type=str, dest='kicad_pcb', default="bm2.routed.kicad_pcb")
-    parser.add_argument('--kicad_pro', type=str, dest='kicad_pro', default="bm2.routed.kicad_pro")
-    parser.add_argument('--save_file', type=str, dest='save_file', default="bm2.rerouted.kicad_pcb")
+
+    parser.add_argument('--kicad_dir', type=str, dest='kicad_dir', default="example/pcb/bench7_routed/")
+    parser.add_argument('--kicad_pcb', type=str, dest='kicad_pcb', default="bm7.routed.kicad_pcb")
+    parser.add_argument('--kicad_pro', type=str, dest='kicad_pro', default="bm7.routed.kicad_pro")
+    parser.add_argument('--save_file', type=str, dest='save_file', default="bm7.rerouted.kicad_pcb")
 
     return parser.parse_args()
 
