@@ -295,16 +295,23 @@ class GridEnv:
                            to_grid_coord_round_down(item_info.end.Y - y0),
                            z]
 
-                    # if start[0] != end[0] or start[1] != end[1]:
+                    dx = abs(start[0] - end[0])
+                    dy = abs(start[1] - end[1])
+                    if dx != dy:
+                        if dx < dy / 2:
+                            end[0] = start[0]
+                        elif dy < dx / 2:
+                            end[1] = start[1]
                     route = [start, end]
-                    distance = [to_grid_coord_round_up(item_info.width), 0]
+                    distance = [to_grid_coord_round_up(item_info.width / 2), 0]
 
                     trace_items['route'].append(route)
                     trace_items['distance'].append(distance)
 
                 for item_info in net_info.trace_items['via']:
                     z_list = []
-                    for layer in layer_dict[item_info.layers]:
+
+                    for layer in item_info.layers:
                         z_list.append(layer_dict[layer])
                     z_min = min(z_list)
                     z_max = max(z_list)
@@ -316,7 +323,7 @@ class GridEnv:
                            z_max]
                     route = [start, end]
 
-                    distance = [0, to_grid_coord_round_up(item_info.size)]
+                    distance = [0, to_grid_coord_round_up(item_info.size / 2)]
 
                     trace_items['route'].append(route)
                     trace_items['distance'].append(distance)
@@ -769,8 +776,8 @@ class GridEnv:
 
         for route in self.netlist[net_i].two_pin_net_route_list:
             if route:
-                distance = [self.netlist[net_i].net_class.track_width,
-                            self.netlist[net_i].net_class.microvia_diameter]
+                distance = [int(self.netlist[net_i].net_class.track_width / 2),
+                            int(self.netlist[net_i].net_class.microvia_diameter / 2)]
                 self.add_trace_coord(route, distance)
 
     def merge_route(self) -> list:

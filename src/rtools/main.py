@@ -5,12 +5,15 @@ from rtools.dataset import Dataset
 from rtools.modeling.grid_env import GridEnv
 from rtools.router import AStarRouter
 
+from rtools.visualizer import MiniMap
+
 
 def routing_arguments():
     parser = ArgumentParser('AStarSolver')
     parser.add_argument('--episode', type=int, dest='episode', default=1)
     parser.add_argument('--log', type=str, dest='log', default="log.txt")  # TODO
     parser.add_argument('--trace', type=bool, dest='trace', default=True)  # TODO
+
     parser.add_argument('--kicad_dir', type=str, dest='kicad_dir', default="example/pcb/bench7_routed/")
     parser.add_argument('--kicad_pcb', type=str, dest='kicad_pcb', default="bm7.routed.kicad_pcb")
     parser.add_argument('--kicad_pro', type=str, dest='kicad_pro', default="bm7.routed.kicad_pro")
@@ -46,10 +49,14 @@ if __name__ == '__main__':
     model = GridEnv(dataset.board_area, dataset.layers_,
                     dataset.netNum, dataset.netList, dataset.netClass, dataset.pad_obstacles)
 
+    # demo = MiniMap(model, 3, 0.05)
+
     # build the router based on the model
     router = AStarRouter(model)
     # routing...
     router.run(arg.episode)
+
+    # demo = MiniMap(model, 3, 0.05)
 
     # write back the routing result
     route_combo = model.merge_route()
